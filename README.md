@@ -46,7 +46,11 @@ python xl_auth_tray.py
 
 3. **Autostart aktivieren** (optional):
    ```powershell
+   # Automatische Suche (~\.local\bin oder dist\)
    .\install_autostart.ps1
+   
+   # Oder spezifischen Pfad angeben
+   .\install_autostart.ps1 -Path C:\Users\Andy\.local\bin
    ```
 
 ## Konfiguration
