@@ -1,10 +1,10 @@
-import binascii
-import json
 import os
-import re
-import signal
 import sys
 import time
+import binascii
+import json
+import re
+import signal
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
