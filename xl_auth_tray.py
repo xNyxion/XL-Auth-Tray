@@ -44,7 +44,6 @@ DEFAULT_CONFIG = {
 
 
 def resource_path(*parts: str) -> Path:
-    """Löst Resourcen-Pfade auf — gebundelt (PyInstaller: sys._MEIPASS) oder als Skript."""
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
     return base.joinpath(*parts)
 
@@ -157,6 +156,7 @@ class TrayApplication:
         """Initialisiert Tray-Icon, Kontextmenü, OTP-Timer und lädt die gespeicherte Konfiguration."""
         self.app = app
         self.config = load_config()
+        self._active_workers: set[_OtpWorker] = set()
         self.tray = QSystemTrayIcon(self.create_icon(), app)
         self.tray.setToolTip("XL Authenticator Tray")
         self.tray.setContextMenu(self.create_menu())
@@ -255,9 +255,16 @@ class TrayApplication:
         url = f"http://{host}:{port}{prefix}{code}"
 
         worker = _OtpWorker(url, host, port)
+        worker.setAutoDelete(False)
+        self._active_workers.add(worker)
         worker.signals.success.connect(self._on_otp_success)
         worker.signals.failure.connect(self._on_otp_failure)
+        worker.signals.success.connect(lambda *_: self._release_worker(worker))
+        worker.signals.failure.connect(lambda *_: self._release_worker(worker))
         QThreadPool.globalInstance().start(worker)
+
+    def _release_worker(self, worker: "_OtpWorker") -> None:
+        self._active_workers.discard(worker)
 
     def _on_otp_success(self, host: str, port: int) -> None:
         self.tray.showMessage(
@@ -398,7 +405,7 @@ def main() -> None:
     )
     app.installTranslator(translator)
     signal.signal(signal.SIGINT, lambda *_: app.quit())
-    tray_app = TrayApplication(app)  # noqa: F841 — must stay alive
+    tray_app = TrayApplication(app)  # noqa: F841
     sys.exit(app.exec())
 
 
