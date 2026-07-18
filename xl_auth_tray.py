@@ -123,6 +123,8 @@ class _OtpSignals(QObject):
 
 
 class _OtpWorker(QRunnable):
+    """Sendet OTP im Hintergrund, damit der GUI-Thread nicht blockiert."""
+
     def __init__(self, url: str, host: str, port: int):
         super().__init__()
         self.url = url
@@ -151,6 +153,7 @@ def set_secret(secret: str) -> None:
 
 class TrayApplication:
     def __init__(self, app: QApplication):
+        """Initialisiert Tray-Icon, Kontextmenü, OTP-Timer und lädt die gespeicherte Konfiguration."""
         self.app = app
         self.config = load_config()
         self._active_workers: set[_OtpWorker] = set()
