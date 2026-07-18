@@ -3,3 +3,4 @@ pyotp==2.10.0
 PySide6==6.11.1
 requests==2.34.2
 pywin32-ctypes==0.2.3
+cryptography==46.0.3

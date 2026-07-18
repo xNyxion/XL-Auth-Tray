@@ -1,10 +1,10 @@
+import base64
 import binascii
 import json
 import os
 import re
 import signal
 import sys
-import time
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +12,8 @@ from pathlib import Path
 import keyring
 import pyotp
 import requests
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from PySide6.QtCore import (
     QLibraryInfo,
     QLocale,
@@ -27,6 +29,7 @@ from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QInputDialog,
+    QLineEdit,
     QMenu,
     QMessageBox,
     QSystemTrayIcon,
@@ -66,8 +69,6 @@ def config_path() -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     return folder / "config.json"
 
-
-TOTP_INTERVAL = 30
 
 _HOST_RE = re.compile(r"^[a-zA-Z0-9.\-]+$")
 _PREFIX_RE = re.compile(r"^[a-zA-Z0-9/_.\-~]*$")
@@ -143,27 +144,78 @@ class _OtpWorker(QRunnable):
         self.signals.success.emit(self.host, self.port)
 
 
-def get_secret() -> str | None:
-    return keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME)
+SECRET_VERSION = 1
+_SCRYPT_N = 2**15
+_SCRYPT_R = 8
+_SCRYPT_P = 1
 
 
-def set_secret(secret: str) -> None:
-    keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, secret.strip())
+def _derive_key(passphrase: str, salt: bytes) -> bytes:
+    """Leitet aus Passphrase + Salt einen Fernet-tauglichen Schlüssel via scrypt ab."""
+    kdf = Scrypt(salt=salt, length=32, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P)
+    return base64.urlsafe_b64encode(kdf.derive(passphrase.encode("utf-8")))
+
+
+def load_stored_blob() -> dict | None:
+    """Lädt den gespeicherten Eintrag. Rückgabe: None, verschlüsseltes Blob-Dict
+    (Schlüssel v/salt/ct) oder Legacy-Klartext als {"legacy": <secret>}."""
+    raw = keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME)
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict) and data.get("v") == SECRET_VERSION:
+            return data
+    except (ValueError, TypeError):
+        pass
+    return {"legacy": raw}
+
+
+def store_encrypted_secret(secret: str, passphrase: str) -> bytes:
+    """Verschlüsselt das Secret mit einem aus der Passphrase abgeleiteten Schlüssel
+    und speichert das versionierte Blob im Credential Manager. Gibt den Key zurück."""
+    salt = os.urandom(16)
+    key = _derive_key(passphrase, salt)
+    token = Fernet(key).encrypt(secret.encode("utf-8"))
+    blob = {
+        "v": SECRET_VERSION,
+        "salt": base64.b64encode(salt).decode("ascii"),
+        "ct": token.decode("ascii"),
+    }
+    keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, json.dumps(blob))
+    return key
+
+
+def has_stored_secret() -> bool:
+    return load_stored_blob() is not None
+
+
+def _zeroize(buffer: bytearray) -> None:
+    """Überschreibt einen bytearray-Puffer im Speicher (best effort)."""
+    for i in range(len(buffer)):
+        buffer[i] = 0
 
 
 class TrayApplication:
     def __init__(self, app: QApplication):
-        """Initialisiert Tray-Icon, Kontextmenü, OTP-Timer und lädt die gespeicherte Konfiguration."""
+        """Initialisiert Tray-Icon, Kontextmenü und lädt die gespeicherte Konfiguration.
+
+        Der abgeleitete Schlüssel wird nach dem Entsperren für die Session im RAM
+        gehalten; das Secret selbst wird nur on-demand (beim Klick) entschlüsselt."""
         self.app = app
         self.config = load_config()
         self._active_workers: set[_OtpWorker] = set()
+        self._fernet: Fernet | None = None
+        self._ciphertext: bytes | None = None
+
         self.tray = QSystemTrayIcon(self.create_icon(), app)
-        self.tray.setToolTip("XL Authenticator Tray")
         self.tray.setContextMenu(self.create_menu())
         self.tray.activated.connect(self._on_tray_activated)
         self.tray.show()
 
-        self._schedule_tooltip_refresh()
+        self.app.aboutToQuit.connect(self._lock)
+        self._unlock_on_start()
+        self._update_tooltip()
 
     @staticmethod
     def create_icon() -> QIcon:
@@ -206,26 +258,134 @@ class TrayApplication:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self.send_otp()
 
-    def _schedule_tooltip_refresh(self) -> None:
-        self.refresh_tooltip()
-        remaining_ms = int((TOTP_INTERVAL - time.time() % TOTP_INTERVAL) * 1000) + 50
-        QTimer.singleShot(remaining_ms, self._schedule_tooltip_refresh)
-
-    def refresh_tooltip(self) -> None:
-        secret = get_secret()
-        if not secret:
+    def _update_tooltip(self) -> None:
+        """Statischer Tooltip - kein Live-Code, damit das Secret nicht periodisch
+        entschlüsselt werden muss (On-Demand-Prinzip)."""
+        if not has_stored_secret():
             self.tray.setToolTip("XL Authenticator Tray - Secret fehlt")
+        elif self._fernet is None:
+            self.tray.setToolTip("XL Authenticator Tray - gesperrt")
+        else:
+            self.tray.setToolTip("XL Authenticator Tray - bereit (Klick = OTP)")
+
+    @property
+    def is_unlocked(self) -> bool:
+        return self._fernet is not None and self._ciphertext is not None
+
+    def _lock(self) -> None:
+        """Verwirft den Session-Schlüssel und das Ciphertext aus dem RAM."""
+        self._fernet = None
+        self._ciphertext = None
+
+    def _prompt_passphrase(self, title: str, label: str) -> str | None:
+        text, accepted = QInputDialog.getText(
+            None,
+            title,
+            label,
+            echo=QLineEdit.EchoMode.Password,
+        )
+        if not accepted:
+            return None
+        return text
+
+    def _unlock_on_start(self) -> None:
+        """Fragt beim Start die Master-Passphrase ab und leitet den Session-Schlüssel
+        ab. Migriert vorhandene Klartext-Secrets (Legacy) transparent."""
+        blob = load_stored_blob()
+        if blob is None:
+            return  # Noch kein Secret hinterlegt - Entsperren nicht nötig.
+
+        if "legacy" in blob:
+            self._migrate_legacy_secret(blob["legacy"])
             return
 
         try:
-            code = pyotp.TOTP(secret).now()
-            self.tray.setToolTip(f"XL Authenticator Tray - OTP {code}")
-        except (ValueError, binascii.Error):
-            self.tray.setToolTip("XL Authenticator Tray - ungültiges Secret")
+            salt = base64.b64decode(blob["salt"])
+            ciphertext = blob["ct"].encode("ascii")
+        except (KeyError, ValueError, binascii.Error):
+            QMessageBox.critical(
+                None,
+                "Beschädigter Eintrag",
+                "Der gespeicherte Secret-Eintrag ist ungültig. Bitte Secret neu setzen.",
+            )
+            return
+
+        for _ in range(3):
+            passphrase = self._prompt_passphrase(
+                "Entsperren", "Master-Passphrase eingeben:"
+            )
+            if passphrase is None:
+                self.app.quit()
+                return
+            fernet = Fernet(_derive_key(passphrase, salt))
+            try:
+                plaintext = bytearray(fernet.decrypt(ciphertext))
+            except InvalidToken:
+                QMessageBox.warning(
+                    None, "Falsche Passphrase", "Die Passphrase ist nicht korrekt."
+                )
+                continue
+            _zeroize(plaintext)
+            self._fernet = fernet
+            self._ciphertext = ciphertext
+            return
+
+        QMessageBox.critical(
+            None,
+            "Entsperren fehlgeschlagen",
+            "Zu viele Fehlversuche. Die Anwendung wird beendet.",
+        )
+        self.app.quit()
+
+    def _migrate_legacy_secret(self, legacy_secret: str) -> None:
+        """Wandelt ein früher im Klartext gespeichertes Secret in das verschlüsselte
+        Format um, indem einmalig eine Passphrase gesetzt wird."""
+        QMessageBox.information(
+            None,
+            "Verschlüsselung einrichten",
+            "Dein Secret liegt noch unverschlüsselt vor. Bitte lege jetzt eine "
+            "Master-Passphrase fest, mit der es zukünftig geschützt wird.",
+        )
+        passphrase = self._set_new_passphrase()
+        if passphrase is None:
+            return
+        key = store_encrypted_secret(legacy_secret.strip(), passphrase)
+        self._fernet = Fernet(key)
+        blob = load_stored_blob() or {}
+        self._ciphertext = blob.get("ct", "").encode("ascii") or None
+        self.tray.showMessage(
+            "Verschlüsselt",
+            "Dein Secret ist jetzt mit deiner Passphrase verschlüsselt.",
+            QSystemTrayIcon.MessageIcon.Information,
+            3000,
+        )
+
+    def _set_new_passphrase(self) -> str | None:
+        """Fragt eine neue Passphrase zweimal ab und stellt Übereinstimmung sicher."""
+        first = self._prompt_passphrase("Passphrase festlegen", "Neue Passphrase:")
+        if first is None:
+            return None
+        if not first:
+            QMessageBox.critical(
+                None, "Ungültig", "Die Passphrase darf nicht leer sein."
+            )
+            return None
+        second = self._prompt_passphrase(
+            "Passphrase bestätigen", "Passphrase wiederholen:"
+        )
+        if second is None:
+            return None
+        if first != second:
+            QMessageBox.critical(
+                None, "Keine Übereinstimmung", "Die Passphrasen stimmen nicht überein."
+            )
+            return None
+        return first
 
     def obtain_code(self) -> str | None:
-        secret = get_secret()
-        if not secret:
+        """Entschlüsselt das Secret nur für diesen Aufruf, erzeugt genau einen Code
+        und überschreibt den Klartext-Puffer danach wieder (On-Demand)."""
+        if not has_stored_secret():
             QMessageBox.warning(
                 None,
                 "Secret fehlt",
@@ -233,8 +393,23 @@ class TrayApplication:
             )
             return None
 
+        if not self.is_unlocked:
+            self._unlock_on_start()
+            if not self.is_unlocked:
+                return None
+
         try:
-            return pyotp.TOTP(secret).now()
+            plaintext = bytearray(self._fernet.decrypt(self._ciphertext))
+        except InvalidToken:
+            QMessageBox.critical(
+                None,
+                "Entschlüsselung fehlgeschlagen",
+                "Das Secret konnte nicht entschlüsselt werden.",
+            )
+            return None
+
+        try:
+            code = pyotp.TOTP(plaintext.decode("utf-8")).now()
         except (ValueError, binascii.Error) as error:
             QMessageBox.critical(
                 None,
@@ -242,6 +417,10 @@ class TrayApplication:
                 f"Das gespeicherte TOTP-Secret konnte nicht verarbeitet werden:\n{error}",
             )
             return None
+        finally:
+            _zeroize(plaintext)
+
+        return code
 
     def send_otp(self) -> None:
         code = self.obtain_code()
@@ -333,11 +512,18 @@ class TrayApplication:
             )
             return
 
-        set_secret(secret)
-        self.refresh_tooltip()
+        passphrase = self._set_new_passphrase()
+        if passphrase is None:
+            return
+
+        key = store_encrypted_secret(secret, passphrase)
+        self._fernet = Fernet(key)
+        blob = load_stored_blob() or {}
+        self._ciphertext = blob.get("ct", "").encode("ascii") or None
+        self._update_tooltip()
         self.tray.showMessage(
             "Secret gespeichert",
-            "Das Secret wurde im Windows Credential Manager gespeichert.",
+            "Das Secret wurde verschlüsselt im Windows Credential Manager gespeichert.",
             QSystemTrayIcon.MessageIcon.Information,
             3000,
         )
@@ -382,7 +568,12 @@ class TrayApplication:
         )
 
     def show_status(self) -> None:
-        secret_status = "vorhanden" if get_secret() else "fehlt"
+        if not has_stored_secret():
+            secret_status = "fehlt"
+        elif self.is_unlocked:
+            secret_status = "vorhanden (entsperrt)"
+        else:
+            secret_status = "vorhanden (gesperrt)"
         QMessageBox.information(
             None,
             "XL Authenticator Tray",

@@ -5,8 +5,9 @@
 ## Features
 
 - TOTP-Code-Generierung und automatische Übertragung an XIVLauncher
-- Live-Anzeige des aktuellen OTP im Tray-Icon-Tooltip
-- Sichere Speicherung des Secrets im Windows Credential Manager
+- **Verschlüsselte Speicherung des Secrets** (Master-Passphrase → scrypt → Fernet) im Windows Credential Manager
+- **Master-Passphrase beim Start** entsperrt die Session einmalig
+- **On-Demand:** das Secret wird ausschließlich beim Klick kurz entschlüsselt und der Klartext-Puffer danach wieder überschrieben (kein periodisches Anfassen im Hintergrund)
 - Optional: OTP in Zwischenablage kopieren (auto-clear nach 30s)
 - Autostart-Unterstützung
 
@@ -42,12 +43,17 @@ python xl_auth_tray.py
 1. **Secret konfigurieren:** Rechtsklick auf Tray-Icon → "Secret setzen/ändern"
    - Base32-String (z.B. `JBSWY3DPEHPK3PXP`) oder
    - `otpauth://`-URI eingeben
+   - Anschließend eine **Master-Passphrase** festlegen (wird zweimal abgefragt)
 
-   > **Sicherheitshinweis:** Das Secret wird im Windows Credential Manager gespeichert, nie im Klartext auf der Festplatte. Gib ausschließlich dein eigenes Secret ein.
+   > **Sicherheitshinweis:** Das Secret wird nicht im Klartext gespeichert, sondern mit einem aus deiner Passphrase abgeleiteten Schlüssel (scrypt + Fernet) verschlüsselt und als Blob im Windows Credential Manager abgelegt. Ohne Passphrase ist der Eintrag nutzlos. Gib ausschließlich dein eigenes Secret ein.
 
-2. **OTP senden:** Linksklick auf das Tray-Icon oder Rechtsklick → "OTP senden"
+2. **Entsperren:** Beim Start des Tools wird die Master-Passphrase abgefragt. Der abgeleitete Schlüssel bleibt für die Session im RAM; das Secret selbst wird erst beim OTP-Klick kurz entschlüsselt.
 
-3. **Autostart aktivieren** (optional):
+3. **OTP senden:** Linksklick auf das Tray-Icon oder Rechtsklick → "OTP senden"
+
+   > Ein vorher im Klartext gespeichertes Secret (ältere Version) wird beim ersten Start automatisch erkannt und nach Festlegen einer Passphrase in das verschlüsselte Format migriert.
+
+4. **Autostart aktivieren** (optional):
    ```powershell
    # Beim Build direkt aktivieren (empfohlen):
    .\build.ps1 -Autostart
@@ -73,6 +79,7 @@ Die Konfiguration wird in `%APPDATA%\XLAuthenticatorTray\config.json` gespeicher
 - **Python 3.12+** mit PySide6 (Qt)
 - **pyotp** für TOTP-Generierung
 - **keyring** für sichere Secret-Speicherung
+- **cryptography** (scrypt + Fernet) für die Passphrase-Verschlüsselung des Secrets
 - **PyInstaller** für Standalone-exe
 - **GitHub Actions** für automatische Builds
 
