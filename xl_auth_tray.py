@@ -32,7 +32,6 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
 )
 
-
 APP_NAME = "XLAuthenticatorTray"
 KEYRING_SERVICE = "XLAuthenticatorTray"
 KEYRING_USERNAME = "totp-secret"
@@ -108,7 +107,15 @@ def load_config() -> Config:
 def save_config(config: Config) -> None:
     path = config_path()
     with path.open("w", encoding="utf-8") as file:
-        json.dump({"host": config.host, "port": config.port, "path_prefix": config.path_prefix}, file, indent=2)
+        json.dump(
+            {
+                "host": config.host,
+                "port": config.port,
+                "path_prefix": config.path_prefix,
+            },
+            file,
+            indent=2,
+        )
 
 
 class _OtpSignals(QObject):
@@ -261,8 +268,11 @@ class TrayApplication:
         )
 
     def _on_otp_failure(self, url: str, error: str) -> None:
-        msg = QMessageBox(QMessageBox.Icon.Critical, "OTP konnte nicht gesendet werden",
-            "Prüfe, ob XIVLauncher läuft und die OTP-Makro-Unterstützung aktiviert ist.")
+        msg = QMessageBox(
+            QMessageBox.Icon.Critical,
+            "OTP konnte nicht gesendet werden",
+            "Prüfe, ob XIVLauncher läuft und die OTP-Makro-Unterstützung aktiviert ist.",
+        )
         msg.setDetailedText(f"Ziel:\n{url}\n\nFehler:\n{error}")
         msg.exec()
 
@@ -380,8 +390,12 @@ def main() -> None:
     app.setWindowIcon(QIcon(str(ICON_PATH)))
     app.setQuitOnLastWindowClosed(False)
     translator = QTranslator()
-    translator.load(QLocale.system(), "qtbase", "_",
-                    QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath))
+    translator.load(
+        QLocale.system(),
+        "qtbase",
+        "_",
+        QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath),
+    )
     app.installTranslator(translator)
     signal.signal(signal.SIGINT, lambda *_: app.quit())
     tray_app = TrayApplication(app)  # noqa: F841 — must stay alive
