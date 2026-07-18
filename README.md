@@ -1,6 +1,6 @@
 # XL Auth Tray
 
-Windows System Tray-Anwendung zur automatischen Übermittlung von TOTP-Codes an den [XIVLauncher](https://github.com/goatcorp/FFXIVQuickLauncher).
+> Windows System Tray-Anwendung zur automatischen Übermittlung von TOTP-Codes an den [XIVLauncher](https://github.com/goatcorp/FFXIVQuickLauncher).
 
 ## Features
 
@@ -21,6 +21,8 @@ Lade `XLAuthenticatorTray.exe` aus den [Releases](https://github.com/xNyxion/XL-
 ```powershell
 git clone https://github.com/xNyxion/XL-Auth-Tray.git
 cd XL-Auth-Tray
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
 
 # Direkt ausführen
@@ -30,11 +32,15 @@ python xl_auth_tray.py
 .\build.ps1
 ```
 
+**Voraussetzung:** XIVLauncher muss geöffnet sein und die OTP-Makro-Unterstützung muss aktiviert sein (XIVLauncher → Einstellungen → In-Game → OTP-Makro-Unterstützung).
+
 ## Verwendung
 
 1. **Secret konfigurieren:** Rechtsklick auf Tray-Icon → "Secret setzen/ändern"
    - Base32-String (z.B. `JBSWY3DPEHPK3PXP`) oder
    - `otpauth://`-URI eingeben
+
+   > **Sicherheitshinweis:** Das Secret wird im Windows Credential Manager gespeichert, nie im Klartext auf der Festplatte. Gib ausschließlich dein eigenes Secret ein.
 
 2. **OTP senden:** Linksklick auf das Tray-Icon oder Rechtsklick → "OTP senden"
 
