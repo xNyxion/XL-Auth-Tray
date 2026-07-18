@@ -35,9 +35,9 @@ python xl_auth_tray.py
 .\build.ps1 -Autostart
 ```
 
-**Voraussetzung:** XIVLauncher muss geöffnet sein und die OTP-Makro-Unterstützung muss aktiviert sein (XIVLauncher → Einstellungen → In-Game → OTP-Makro-Unterstützung).
-
 ## Verwendung
+
+**Voraussetzung:** Der XIVLauncher muss laufen und die OTP-Makro-Unterstützung muss aktiviert sein (XIVLauncher → Einstellungen → In-Game → "Enable OTP macro support").
 
 1. **Secret konfigurieren:** Rechtsklick auf Tray-Icon → "Secret setzen/ändern"
    - Base32-String (z.B. `JBSWY3DPEHPK3PXP`) oder
@@ -49,7 +49,10 @@ python xl_auth_tray.py
 
 3. **Autostart aktivieren** (optional):
    ```powershell
-   # Nach build.ps1 im Repo:
+   # Beim Build direkt aktivieren (empfohlen):
+   .\build.ps1 -Autostart
+   
+   # Oder nachträglich im Repo-Verzeichnis:
    .\install_autostart.ps1
    
    # Oder wenn .exe woanders liegt (z.B. ~/.local/bin):
