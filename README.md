@@ -46,10 +46,11 @@ python xl_auth_tray.py
 
 3. **Autostart aktivieren** (optional):
    ```powershell
-   # Wechsle in das Verzeichnis mit der .exe
-   cd ~/.local/bin
+   # Nach build.ps1 im Repo:
+   .\install_autostart.ps1
    
-   # Führe das Skript aus
+   # Oder wenn .exe woanders liegt (z.B. ~/.local/bin):
+   cd ~/.local/bin
    C:\path\to\install_autostart.ps1
    ```
 

@@ -5,14 +5,20 @@
     Erzeugt eine .lnk-Verknuepfung im Windows-Startup-Ordner des aktuellen Users.
     Kein Admin noetig. Beim naechsten Login startet die App automatisch.
     
-    Das Skript sucht die .exe im aktuellen Verzeichnis (PWD).
+    Das Skript sucht die .exe automatisch in:
+    1. dist\ (relativ zum Skript) - fuer Entwickler nach build.ps1
+    2. Aktuelles Verzeichnis (PWD) - fuer User mit installierter .exe
 .PARAMETER Remove
     Entfernt die Autostart-Verknuepfung wieder.
+.EXAMPLE
+    .\install_autostart.ps1
+    
+    Im Repo nach build.ps1: Findet .exe in dist\
 .EXAMPLE
     cd ~/.local/bin
     C:\path\to\install_autostart.ps1
     
-    Erstellt Autostart-Verknuepfung fuer die .exe im aktuellen Ordner
+    Als User: Findet .exe im aktuellen Verzeichnis
 .EXAMPLE
     .\install_autostart.ps1 -Remove
     
@@ -37,11 +43,22 @@ if ($Remove) {
     return
 }
 
-# .exe im aktuellen Verzeichnis suchen
-$exe = Join-Path (Get-Location) "XLAuthenticatorTray.exe"
+# .exe suchen: erst dist/ (Entwickler-Build), dann PWD (User-Installation)
+$candidates = @(
+    (Join-Path $PSScriptRoot "dist\XLAuthenticatorTray.exe"),
+    (Join-Path (Get-Location) "XLAuthenticatorTray.exe")
+)
 
-if (-not (Test-Path $exe)) {
-    throw "XLAuthenticatorTray.exe nicht gefunden in: $(Get-Location)`nWechsle in das Verzeichnis, das die .exe enthaelt."
+$exe = $null
+foreach ($candidate in $candidates) {
+    if (Test-Path $candidate) {
+        $exe = $candidate
+        break
+    }
+}
+
+if (-not $exe) {
+    throw "XLAuthenticatorTray.exe nicht gefunden.`nGesucht in:`n  - $($PSScriptRoot)\dist\XLAuthenticatorTray.exe`n  - $(Get-Location)\XLAuthenticatorTray.exe"
 }
 
 $shell = New-Object -ComObject WScript.Shell
