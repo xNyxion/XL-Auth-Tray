@@ -1,0 +1,17 @@
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Backups
+*.bak
+
+# Generated icon
+icons/app.ico
