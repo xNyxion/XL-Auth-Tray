@@ -28,8 +28,11 @@ pip install -r requirements.txt
 # Direkt ausführen
 python xl_auth_tray.py
 
-# Oder exe bauen
+# Oder: exe bauen
 .\build.ps1
+
+# Oder: exe bauen + direkt Autostart einrichten
+.\build.ps1 -Autostart
 ```
 
 **Voraussetzung:** XIVLauncher muss geöffnet sein und die OTP-Makro-Unterstützung muss aktiviert sein (XIVLauncher → Einstellungen → In-Game → OTP-Makro-Unterstützung).
