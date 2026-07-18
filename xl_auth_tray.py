@@ -44,7 +44,6 @@ DEFAULT_CONFIG = {
 
 
 def resource_path(*parts: str) -> Path:
-    """Löst Resourcen-Pfade auf — gebundelt (PyInstaller: sys._MEIPASS) oder als Skript."""
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
     return base.joinpath(*parts)
 
@@ -124,8 +123,6 @@ class _OtpSignals(QObject):
 
 
 class _OtpWorker(QRunnable):
-    """Sendet OTP im Hintergrund, damit der GUI-Thread nicht blockiert."""
-
     def __init__(self, url: str, host: str, port: int):
         super().__init__()
         self.url = url
@@ -154,14 +151,8 @@ def set_secret(secret: str) -> None:
 
 class TrayApplication:
     def __init__(self, app: QApplication):
-        """Initialisiert Tray-Icon, Kontextmenü, OTP-Timer und lädt die gespeicherte Konfiguration."""
         self.app = app
         self.config = load_config()
-        # Hält laufende OTP-Worker am Leben, bis ihre Signale im GUI-Thread
-        # verarbeitet wurden. Ohne diese Referenz würde der Thread-Pool den
-        # Worker (und dessen Signals-QObject) direkt nach run() im Worker-Thread
-        # löschen – das verwirft den Callback und kann den Prozess zum Absturz
-        # bringen, wodurch das Tray-Icon nach dem Senden verschwindet.
         self._active_workers: set[_OtpWorker] = set()
         self.tray = QSystemTrayIcon(self.create_icon(), app)
         self.tray.setToolTip("XL Authenticator Tray")
@@ -261,16 +252,10 @@ class TrayApplication:
         url = f"http://{host}:{port}{prefix}{code}"
 
         worker = _OtpWorker(url, host, port)
-        # Automatisches Löschen durch den Thread-Pool verhindern: sonst würde der
-        # Worker (inkl. seines Signals-QObject mit GUI-Thread-Affinität) direkt
-        # nach run() im Worker-Thread zerstört, während das Erfolgs-/Fehlersignal
-        # noch als Cross-Thread-Event ansteht. Das verwarf den Callback und ließ
-        # den Prozess abstürzen, sodass das Tray-Icon nach dem Senden verschwand.
         worker.setAutoDelete(False)
         self._active_workers.add(worker)
         worker.signals.success.connect(self._on_otp_success)
         worker.signals.failure.connect(self._on_otp_failure)
-        # Referenz erst freigeben, nachdem das Signal im GUI-Thread angekommen ist.
         worker.signals.success.connect(lambda *_: self._release_worker(worker))
         worker.signals.failure.connect(lambda *_: self._release_worker(worker))
         QThreadPool.globalInstance().start(worker)
@@ -417,7 +402,7 @@ def main() -> None:
     )
     app.installTranslator(translator)
     signal.signal(signal.SIGINT, lambda *_: app.quit())
-    tray_app = TrayApplication(app)  # noqa: F841 — must stay alive
+    tray_app = TrayApplication(app)  # noqa: F841
     sys.exit(app.exec())
 
 
