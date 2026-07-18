@@ -9,7 +9,7 @@
 .PARAMETER Remove
     Entfernt die Autostart-Verknuepfung wieder.
 .EXAMPLE
-    cd C:\Users\Andy\.local\bin
+    cd ~/.local/bin
     C:\path\to\install_autostart.ps1
     
     Erstellt Autostart-Verknuepfung fuer die .exe im aktuellen Ordner
