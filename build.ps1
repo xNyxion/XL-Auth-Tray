@@ -24,7 +24,7 @@ if (-not (Test-Path $python)) {
 Write-Host "==> Build-Abhaengigkeiten pruefen/installieren..." -ForegroundColor Cyan
 & $python -m pip install --quiet pyinstaller pillow
 
-$png = "icons\XIVLauncher-Icon-Transparent.png"
+$png = ".\icons\XIV-Auth-Tray.png"
 $ico = "icons\app.ico"
 
 Write-Host "==> Icon erzeugen ($ico)..." -ForegroundColor Cyan

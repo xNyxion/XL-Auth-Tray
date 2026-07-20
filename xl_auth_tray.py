@@ -51,7 +51,7 @@ def resource_path(*parts: str) -> Path:
     return base.joinpath(*parts)
 
 
-ICON_PATH = resource_path("icons", "XIVLauncher-Icon-Transparent.png")
+ICON_PATH = resource_path("icons", "XIV-Auth-Tray.png")
 
 
 @dataclass
